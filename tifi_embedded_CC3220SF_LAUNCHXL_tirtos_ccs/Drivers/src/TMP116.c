@@ -59,13 +59,12 @@ int8_t get_register_value(I2C_Handle i2c_handle, uint8_t device_address,
  *
  * @return 0: Success, < 0: Failure.
  */
-int8_t get_temperature(I2C_Handle i2c_handle, uint8_t device_address,
-                       float *temp_dest)
+int8_t get_temperature(I2C_Handle i2c_handle, float *temp_dest)
 {
     uint16_t raw_temp_data;
     int8_t status;
 
-    status = get_register_value(i2c_handle, device_address, TMP116_RESULT_REG, &raw_temp_data);
+    status = get_register_value(i2c_handle, TMP116_ADDR, TMP116_RESULT_REG, &raw_temp_data);
     if (status != 0)
     {
         return (FAILURE);
