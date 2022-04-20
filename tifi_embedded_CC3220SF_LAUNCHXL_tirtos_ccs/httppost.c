@@ -41,37 +41,57 @@
 #include <ti/net/http/httpclient.h>
 #include "semaphore.h"
 
+/* TODO: move these when PIR GPIO is move */
+#include <ti/drivers/GPIO.h>
+#include "ti_drivers_config.h"
+
+
 #include <stdio.h>
 #include <unistd.h>
 #include "TMP116.h"
 
 #define HOSTNAME            "http://www.ti-fi-uofsc.com"
-#define REQUEST_URI         "/Williams/api/williams-tmp/post-data/"
+#define REQUEST_URI_TMP     "/Williams/api/williams-tmp/post-data/"
+#define REQUEST_URI_PIR     "/Williams/api/williams-motion/post-data/"
 #define USER_AGENT          "HTTPClient (ARM; TI-RTOS)"
 #define CONTENT_TYPE        "application/json; charset=utf-8"
 #define HTTP_MIN_RECV       (256)
+#define PAYLOAD_BUF_LEN     32
+#define TEMP_PERIOD_S       5
 
 extern Display_Handle display;
 extern sem_t ipEventSyncObj;
 extern void printError(char *errString, int code);
 
-static void http_post_data(uint16_t data_val, char *payload_buf,
-                           char *response_buf, uint32_t resp_buf_len);
+void http_post_data(uint16_t data_val, char *payload_buf,
+                    char *response_buf, uint32_t resp_buf_len,
+                    const char *request_uri);
+
+static void pir_callback_fxn(uint_least8_t index);
+
+static bool pir_flag;
 
 /* TODO: maintain this better, rename / re-comment to correct terms */
 
 /*
- *  ======== httpTask ========
- *  Makes a HTTP GET request
+ *  ======== tempTask ========
+ *  Makes a HTTP POST with a measured temperature every TEMP_PERIOD_S seconds
  */
 void* tempTask(void *pvParameters)
 {
     char data[HTTP_MIN_RECV];    /* TODO: rename this */
     /* TODO: name this better and use the JSON library */
-    char payload[32];
+    char payload[PAYLOAD_BUF_LEN];
 
     float temp = 0.0;
     int8_t temp_status;
+
+    /* Initialize the GPIO for PIR sensor */
+    /* TODO: move this to its own file */
+    GPIO_init();
+    /* GPIO_setConfig(CONFIG_GPIO_PIR, GPIO_CFG_PULL_NONE_INTERNAL | GPIO_CFG_IN_INT_RISING);*/
+    GPIO_setCallback(CONFIG_GPIO_PIR, pir_callback_fxn);
+    GPIO_enableInt(CONFIG_GPIO_PIR);
 
     /* Initialize the I2C bus */
     /* TODO: move this to a function in its own file, an I2C utility file */
@@ -107,14 +127,27 @@ void* tempTask(void *pvParameters)
             return 0;
         }
 
-        http_post_data((uint16_t) temp, payload, data, sizeof(data));
-        sleep(5);
+        /* FIXME: this will only send an intruder alert when 5 seconds has elapsed.
+         * Ideally, this should respond much faster.
+         * Calling http_post_data() directly in the interrupt handler led to bugs.
+         * Maybe have the interrupt handler attach a thread that then handles the HTTP request?
+         */
+        if (pir_flag)
+        {
+            pir_flag = false;
+            http_post_data(1, payload, data, sizeof(data), REQUEST_URI_PIR);
+            continue;
+        }
+
+        http_post_data((uint16_t) temp, payload, data, sizeof(data), REQUEST_URI_TMP);
+        sleep(TEMP_PERIOD_S);
     }
 
 }
 
 void http_post_data(uint16_t data_val, char *payload_buf,
-                    char *response_buf, uint32_t resp_buf_len)
+                    char *response_buf, uint32_t resp_buf_len,
+                    const char *request_uri)
 {
     HTTPClient_Handle httpClientHandle;
     int16_t statusCode;
@@ -152,7 +185,7 @@ void http_post_data(uint16_t data_val, char *payload_buf,
     }
 
     ret = HTTPClient_sendRequest(httpClientHandle, HTTP_METHOD_POST,
-                                 REQUEST_URI,
+                                 request_uri,
                                  payload_buf,
                                  strlen(payload_buf),
                                  0);
@@ -195,4 +228,9 @@ void http_post_data(uint16_t data_val, char *payload_buf,
     }
 
     HTTPClient_destroy(httpClientHandle);
+}
+
+void pir_callback_fxn(uint_least8_t index)
+{
+    pir_flag = true;
 }
