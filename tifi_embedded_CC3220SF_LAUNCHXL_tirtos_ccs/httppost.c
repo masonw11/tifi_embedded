@@ -55,18 +55,20 @@ extern Display_Handle display;
 extern sem_t ipEventSyncObj;
 extern void printError(char *errString, int code);
 
+static void http_post_data(uint16_t data_val, char *payload_buf,
+                           char *response_buf, uint32_t resp_buf_len);
+
+/* TODO: maintain this better, rename / re-comment to correct terms */
+
 /*
  *  ======== httpTask ========
  *  Makes a HTTP GET request
  */
-void* httpTask(void *pvParameters)
+void* tempTask(void *pvParameters)
 {
-    bool moreDataFlag = false;
-    char data[HTTP_MIN_RECV];
+    char data[HTTP_MIN_RECV];    /* TODO: rename this */
     /* TODO: name this better and use the JSON library */
     char payload[32];
-    int16_t ret = 0;
-    int16_t len = 0;
 
     float temp = 0.0;
     int8_t temp_status;
@@ -98,8 +100,6 @@ void* httpTask(void *pvParameters)
 
     while (1)
     {
-        HTTPClient_Handle httpClientHandle;
-        int16_t statusCode;
 
         temp_status = get_temperature(i2c, &temp);
         if (temp_status != 0) {
@@ -107,79 +107,92 @@ void* httpTask(void *pvParameters)
             return 0;
         }
 
-        sprintf(payload, "{\"data\":\"%d\"}", (uint16_t)temp);
-
-        httpClientHandle = HTTPClient_create(&statusCode, 0);
-        if (statusCode < 0)
-        {
-            printError("httpTask: creation of http client handle failed",
-                       statusCode);
-        }
-
-        ret = HTTPClient_setHeader(httpClientHandle,
-                                   HTTPClient_HFIELD_REQ_USER_AGENT,
-                                   USER_AGENT, strlen(USER_AGENT),
-                                   HTTPClient_HFIELD_PERSISTENT);
-
-        ret |= HTTPClient_setHeader(httpClientHandle,
-                                    HTTPClient_HFIELD_REQ_CONTENT_TYPE,
-                                    CONTENT_TYPE, strlen(CONTENT_TYPE),
-                                    HTTPClient_HFIELD_PERSISTENT);
-        if (ret < 0)
-        {
-            printError("httpTask: setting request header failed", ret);
-        }
-
-        ret = HTTPClient_connect(httpClientHandle, HOSTNAME, 0, 0);
-        if (ret < 0)
-        {
-            printError("httpTask: connect failed", ret);
-        }
-
-        ret = HTTPClient_sendRequest(httpClientHandle, HTTP_METHOD_POST,
-                                     REQUEST_URI,
-                                     payload,
-                                     strlen(payload),
-                                     0);
-        Display_printf(display, 0, 0, "Payload Length: %d\n", strlen(payload));
-        Display_printf(display, 0, 0, "Payload: %c\n", payload);
-
-        if (ret < 0)
-        {
-            printError("httpTask: send failed", ret);
-        }
-
-        if (ret != HTTP_SC_CREATED)
-        {
-            printError("httpTask: cannot get status", ret);
-        }
-
-        Display_printf(display, 0, 0, "HTTP Response Status Code: %d\n", ret);
-
-        len = 0;
-        do
-        {
-            ret = HTTPClient_readResponseBody(httpClientHandle, data,
-                                              sizeof(data), &moreDataFlag);
-            if (ret < 0)
-            {
-                printError("httpTask: response body processing failed", ret);
-            }
-            Display_printf(display, 0, 0, "%.*s \r\n", ret, data);
-            len += ret;
-        }
-        while (moreDataFlag);
-
-        Display_printf(display, 0, 0, "Received %d bytes of payload\n", len);
-
-        ret = HTTPClient_disconnect(httpClientHandle);
-        if (ret < 0)
-        {
-            printError("httpTask: disconnect failed", ret);
-        }
-
-        HTTPClient_destroy(httpClientHandle);
+        http_post_data((uint16_t) temp, payload, data, sizeof(data));
         sleep(5);
     }
 
+}
+
+void http_post_data(uint16_t data_val, char *payload_buf,
+                    char *response_buf, uint32_t resp_buf_len)
+{
+    HTTPClient_Handle httpClientHandle;
+    int16_t statusCode;
+    int16_t len = 0;
+    int16_t ret = 0;
+    bool moreDataFlag = false;
+
+    sprintf(payload_buf, "{\"data\":\"%d\"}", data_val);
+
+    httpClientHandle = HTTPClient_create(&statusCode, 0);
+    if (statusCode < 0)
+    {
+        printError("httpTask: creation of http client handle failed",
+                   statusCode);
+    }
+
+    ret = HTTPClient_setHeader(httpClientHandle,
+                               HTTPClient_HFIELD_REQ_USER_AGENT,
+                               USER_AGENT, strlen(USER_AGENT),
+                               HTTPClient_HFIELD_PERSISTENT);
+
+    ret |= HTTPClient_setHeader(httpClientHandle,
+                                HTTPClient_HFIELD_REQ_CONTENT_TYPE,
+                                CONTENT_TYPE, strlen(CONTENT_TYPE),
+                                HTTPClient_HFIELD_PERSISTENT);
+    if (ret < 0)
+    {
+        printError("httpTask: setting request header failed", ret);
+    }
+
+    ret = HTTPClient_connect(httpClientHandle, HOSTNAME, 0, 0);
+    if (ret < 0)
+    {
+        printError("httpTask: connect failed", ret);
+    }
+
+    ret = HTTPClient_sendRequest(httpClientHandle, HTTP_METHOD_POST,
+                                 REQUEST_URI,
+                                 payload_buf,
+                                 strlen(payload_buf),
+                                 0);
+
+    Display_printf(display, 0, 0, "Payload Length: %d\n", strlen(payload_buf));
+    Display_printf(display, 0, 0, "Payload: %s\n", payload_buf);
+
+    if (ret < 0)
+    {
+        printError("httpTask: send failed", ret);
+    }
+
+    if (ret != HTTP_SC_CREATED)
+    {
+        printError("httpTask: cannot get status", ret);
+    }
+
+    Display_printf(display, 0, 0, "HTTP Response Status Code: %d\n", ret);
+
+    len = 0;
+    do
+    {
+        ret = HTTPClient_readResponseBody(httpClientHandle, response_buf,
+                                          resp_buf_len, &moreDataFlag);
+        if (ret < 0)
+        {
+            printError("httpTask: response body processing failed", ret);
+        }
+        Display_printf(display, 0, 0, "%.*s \r\n", ret, response_buf);
+        len += ret;
+    }
+    while (moreDataFlag);
+
+    Display_printf(display, 0, 0, "Received %d bytes of payload\n", len);
+
+    ret = HTTPClient_disconnect(httpClientHandle);
+    if (ret < 0)
+    {
+        printError("httpTask: disconnect failed", ret);
+    }
+
+    HTTPClient_destroy(httpClientHandle);
 }

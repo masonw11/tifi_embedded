@@ -58,7 +58,7 @@ pthread_t spawn_thread = (pthread_t)NULL;
 int32_t mode;
 Display_Handle display;
 
-extern void* httpTask(void* pvParameters);
+extern void* tempTask(void* pvParameters);
 extern int32_t ti_net_SlNet_initConfig();
 
 /*
@@ -136,7 +136,7 @@ void SimpleLinkNetAppEventHandler(SlNetAppEvent_t *pNetAppEvent)
             status = pthread_attr_setschedparam(&pAttrs, &priParam);
             status |= pthread_attr_setstacksize(&pAttrs, TASK_STACK_SIZE);
 
-            status = pthread_create(&httpThread, &pAttrs, httpTask, NULL);
+            status = pthread_create(&httpThread, &pAttrs, tempTask, NULL);
             if(status)
             {
                 printError("Task create failed", status);
