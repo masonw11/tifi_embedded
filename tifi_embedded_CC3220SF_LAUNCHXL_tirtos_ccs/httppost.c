@@ -40,6 +40,8 @@
 #include <ti/display/Display.h>
 #include <ti/net/http/httpclient.h>
 #include "semaphore.h"
+#include <pthread.h>
+
 
 /* TODO: move these when PIR GPIO is move */
 #include <ti/drivers/GPIO.h>
@@ -59,6 +61,8 @@
 #define PAYLOAD_BUF_LEN     32
 #define TEMP_PERIOD_S       5
 
+#define THREADSTACKSIZE    4096
+
 extern Display_Handle display;
 extern sem_t ipEventSyncObj;
 extern void printError(char *errString, int code);
@@ -68,8 +72,10 @@ void http_post_data(uint16_t data_val, char *payload_buf,
                     const char *request_uri);
 
 static void pir_callback_fxn(uint_least8_t index);
+void* PIRThread(void* arg0);
 
 static bool pir_flag;
+sem_t semPIR;
 
 /* TODO: maintain this better, rename / re-comment to correct terms */
 
@@ -99,6 +105,42 @@ void* tempTask(void *pvParameters)
     I2C_Params i2c_params;
     I2C_init();
 
+    /* TODO: move initialization to a different thread that attaches the tempTask thread and returns */
+    pthread_t pir_thread;
+    pthread_attr_t pAttrs;
+    struct sched_param priParam;
+    int retc;
+    int detachState;
+
+    /* Set up the semaphore and thread for the PIR interrupt */
+    retc = sem_init(&semPIR, 0, 0);
+    if (retc == -1) {
+        while(1);
+    }
+
+    pthread_attr_init(&pAttrs);
+    priParam.sched_priority = 1;
+    detachState = PTHREAD_CREATE_DETACHED;
+    retc = pthread_attr_setdetachstate(&pAttrs, detachState);
+    if (retc != 0) {
+        while(1);
+    }
+
+    pthread_attr_setschedparam(&pAttrs, &priParam);
+
+    retc |= pthread_attr_setstacksize(&pAttrs, THREADSTACKSIZE);
+    if(retc != 0)
+    {
+        while(1);
+    }
+
+    retc = pthread_create(&pir_thread, &pAttrs, PIRThread, NULL);
+    if (retc != 0) {
+        /* pthread_create() failed */
+        while(1);
+    }
+
+    /* Initialize I2C for the temperature sensor */
     I2C_Params_init(&i2c_params);
     i2c_params.bitRate = I2C_400kHz;
 
@@ -125,18 +167,6 @@ void* tempTask(void *pvParameters)
         if (temp_status != 0) {
             Display_printf(display, 0, 0, "Error reading temperature.");
             return 0;
-        }
-
-        /* FIXME: this will only send an intruder alert when 5 seconds has elapsed.
-         * Ideally, this should respond much faster.
-         * Calling http_post_data() directly in the interrupt handler led to bugs.
-         * Maybe have the interrupt handler attach a thread that then handles the HTTP request?
-         */
-        if (pir_flag)
-        {
-            pir_flag = false;
-            http_post_data(1, payload, data, sizeof(data), REQUEST_URI_PIR);
-            continue;
         }
 
         http_post_data((uint16_t) temp, payload, data, sizeof(data), REQUEST_URI_TMP);
@@ -232,5 +262,16 @@ void http_post_data(uint16_t data_val, char *payload_buf,
 
 void pir_callback_fxn(uint_least8_t index)
 {
-    pir_flag = true;
+    sem_post(&semPIR);
+}
+
+void* PIRThread(void* arg0) {
+    char payload[PAYLOAD_BUF_LEN];
+    char data[HTTP_MIN_RECV];
+
+    while (1) {
+        sem_wait(&semPIR);
+        Display_printf(display, 0, 0, "Movement detected!\n");
+        http_post_data(1, payload, data, sizeof(data), REQUEST_URI_PIR);
+    }
 }

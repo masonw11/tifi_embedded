@@ -41,7 +41,7 @@
 
 #include "platform.h"
 
-#define APPLICATION_NAME                      "HTTP GET"
+#define APPLICATION_NAME                      "HTTP POST"
 #define DEVICE_ERROR                          ("Device error, please refer \"DEVICE ERRORS CODES\" section in errors.h")
 #define WLAN_ERROR                            ("WLAN error, please refer \"WLAN ERRORS CODES\" section in errors.h")
 #define SL_STOP_TIMEOUT                       (200)
